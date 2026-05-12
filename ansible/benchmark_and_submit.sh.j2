@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[hostkey-bench] starting benchmark run"
+{{ benchmark_run_cmd }}
+
+if [[ ! -f benchmark.json ]]; then
+  echo "benchmark.json was not produced" >&2
+  exit 1
+fi
+
+hostname_val="$(hostname)"
+kernel_val="$(uname -r)"
+timestamp_val="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+jq \
+  --arg hostname "${hostname_val}" \
+  --arg kernel "${kernel_val}" \
+  --arg ts "${timestamp_val}" \
+  '. + {host: $hostname, kernel: $kernel, collected_at_utc: $ts}' \
+  benchmark.json > benchmark.annotated.json
+
+if [[ -z "${SUBMIT_URL:-}" ]]; then
+  echo "SUBMIT_URL is not set, skipping upload"
+  exit 0
+fi
+
+curl -fsSL "${SUBMIT_URL}" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${SUBMIT_TOKEN:-}" \
+  --data @benchmark.annotated.json
+
+echo "[hostkey-bench] result uploaded"

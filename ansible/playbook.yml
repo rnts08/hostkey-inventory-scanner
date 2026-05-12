@@ -1,0 +1,58 @@
+- name: Build, benchmark, and submit results
+  hosts: benchmark_targets
+  gather_facts: true
+  become: true
+
+  vars:
+    benchmark_repo_url: "https://github.com/example/benchmark-app.git"
+    benchmark_repo_ref: "main"
+    benchmark_build_cmd: "make -j$(nproc)"
+    benchmark_run_cmd: "./benchmark --duration 3600 --json-out benchmark.json"
+    benchmark_submit_url: "https://example-third-party.invalid/results"
+    benchmark_submit_token: ""
+    benchmark_workdir: "/opt/hostkey-bench"
+
+  tasks:
+    - name: Install baseline packages
+      ansible.builtin.package:
+        name:
+          - git
+          - curl
+          - gcc
+          - g++
+          - make
+          - jq
+        state: present
+
+    - name: Clone benchmark repository
+      ansible.builtin.git:
+        repo: "{{ benchmark_repo_url }}"
+        version: "{{ benchmark_repo_ref }}"
+        dest: "{{ benchmark_workdir }}"
+        force: true
+
+    - name: Build benchmark application
+      ansible.builtin.shell: "{{ benchmark_build_cmd }}"
+      args:
+        chdir: "{{ benchmark_workdir }}"
+      changed_when: true
+
+    - name: Upload benchmark runner script
+      ansible.builtin.template:
+        src: "benchmark_and_submit.sh.j2"
+        dest: "{{ benchmark_workdir }}/benchmark_and_submit.sh"
+        mode: "0755"
+
+    - name: Run benchmark and submit
+      ansible.builtin.shell: "./benchmark_and_submit.sh"
+      args:
+        chdir: "{{ benchmark_workdir }}"
+      environment:
+        SUBMIT_URL: "{{ benchmark_submit_url }}"
+        SUBMIT_TOKEN: "{{ benchmark_submit_token }}"
+      register: benchmark_run
+      changed_when: true
+
+    - name: Show benchmark run output
+      ansible.builtin.debug:
+        var: benchmark_run.stdout_lines
